@@ -1,0 +1,191 @@
+name: 1_ConfigurationToolPhase-2 Build
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "Test Runner  Profile"
+        type: choice
+        default: 1_ConfigurationToolPhase-2 Build
+        options:
+          - ConfigureSuper
+         
+        required: true
+      test_environment:
+        description: "Testing Environment"
+        type: choice
+        default: awsqait
+        options:
+          - awsqa
+          - awsqait
+          - devmasterempotral
+          - awsqaperf
+        required: true
+      gpec_endpoint_name:
+        description: "Live GPEC Endpoint name"
+        type: choice
+        default: qak2
+        options:
+          # EC2KWRG203301325 for devtest2k5
+          - Mobileqa2
+          - devk2
+          - devk3
+          - qak2
+          - devtest2k5
+          - qak1
+        required: true
+      gpec_site_name:
+        description: "Live Gpec Site name"
+        type: choice
+        default: qak2
+        options:
+          - devk3
+          - devk2
+          - qak2
+          - Mobileqa2
+          - devtest2k5
+          - qak1
+        required: true
+
+env:
+  GITHUB_USER: ${{ secrets.GH_USER }}
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+  GITHUB_WORKSPACE: /srv/source/commToolP2-${{ github.run_number }}
+  ARTIFACT_ID: develop-${{ github.run_number }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY_ID }}
+  AWS_DEFAULT_REGION: us-east-1
+  TOP_LEVEL_REPO_NAME: gpup_qa
+  REPO_NAME: software_test_automation/commToolP2
+  COMM_TOOL_ENV: awsqait
+  GPEC: qak2
+  SITE: qak2
+  PROFILE: ConfigureSuper
+  SELENIUM_VERSION: 4.9.0
+  CHROME_DRIVER_VERSION: 114.0.5735.90
+
+jobs:
+  build:
+
+    runs-on: [self-hosted, linux, x64]
+
+    permissions:
+      actions: write
+      contents: write
+      statuses: write
+      packages: read
+      checks: write
+
+    timeout-minutes: 1440
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+
+    steps:
+
+      - name: checkout
+        uses: snow-actions/sparse-checkout@v1.2.0
+        with:
+          ref: ${{ github.ref }}
+          patterns: ${{ env.REPO_NAME }}
+          path: ${{ env.GITHUB_WORKSPACE }}
+
+      - name: Set workflow environment variables
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "COMM_TOOL_ENV=${{ inputs.test_environment }}" >> $GITHUB_ENV
+          echo "GPEC=${{ inputs.gpec_site }}" >> $GITHUB_ENV
+          echo "ADM=${{ inputs.adm_site }}" >> $GITHUB_ENV
+          echo "PROFILE=${{ inputs.test_runner }}" >> $GITHUB_ENV
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v4.5
+        with:
+          maven-version: 3.3.9
+
+      - name: install node
+        run: |
+          sudo apt update
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - &&\
+          sudo apt-get install -y nodejs
+          sudo apt-get install -y build-essential
+      # - name: Install Chrome Driver
+      #   run: |
+      #     wget https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/118.0.5993.70/linux64/chromedriver-linux64.zip	
+      #     unzip chromedriver-linux64.zip
+      #     sudo mv chromedriver /chromedriver-linux64/chromedriver
+      #     sudo chown root:root /chromedriver-linux64/chromedriver
+      #     sudo chmod +x /chromedriver-linux64/chromedriver
+#       - name: Install Selenium
+#         run: |
+#           mkdir -p /srv/source/util
+#           wget https://github.com/SeleniumHQ/selenium/releases/download/selenium-${{ env.SELENIUM_VERSION }}/selenium-server-standalone-${{ env.SELENIUM_VERSION }}.jar
+#           mv selenium-server-standalone-${{ env.SELENIUM_VERSION }}.jar /srv/source/util/selenium-server.jar
+      - name: Start Selenium
+    #    run: xvfb-run java -Dwebdriver.chrome.driver=/root/.cache/selenium/chromedriver/linux64/119.0.6045.105/chromedriver -jar /srv/source/util1/selenium-server.jar &
+        run: xvfb-run java -Dwebdriver.chrome.driver=/usr/bin/chromedriver -jar /srv/source/util/selenium-server.jar &
+
+      - name: Build with Maven
+        continue-on-error: true
+        run: |
+          cd ${{ env.REPO_NAME }}
+          mvn -P ${{ inputs.test_runner }} clean verify -e -fae -Denv=${{ inputs.test_environment }} -Dusername=dsgpadmin -Dpassword=P@ssword1! 
+          -Dbrowser=chrome_headless -Dcucumber.ansi-colors.disabled=true -Dendpoint=${{ env.GPEC }} -Dsite=${{ env.SITE }} 
+          --file pom.xml
+      - name: list Target
+        run: ls -lart ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target
+      - name: list cucumber-html-reports
+        run: ls -lart ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber-html-reports
+      - name: list failsafe-reports
+        run: ls -lart ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/failsafe-reports
+   
+      - name: ${{ inputs.test_runner }}
+        continue-on-error: true
+        uses: deblockt/cucumber-report-annotations-action@v1.7
+        with:
+          access-token: ${{ github.token }}
+          path: "${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber.json"
+
+      - name: Upload Cucumber JSON
+        uses: actions/upload-artifact@v3
+        with:
+          name: cucumber-report-${{ env.PROFILE }}
+          path: ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Extract and Display Cucumber Results
+        id: cucumber_results
+        run: |
+
+          echo "PROFILE: ${{ env.PROFILE }}"
+          results=$(cat "${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber.json")
+          total=$(echo "$results" | jq '[.[] | .elements[]] | length')
+          passed=$(echo "$results" | jq '[.[] | .elements[] | select((.steps[]?.result.status == "passed") and (.before[]?.result.status != "failed") and (.after[]?.result.status != "failed"))] | length')
+          failed=$(echo "$results" | jq '[.[] | .elements[] | select((.steps[]?.result.status == "failed") or (.before[]?.result.status == "failed") or (.after[]?.result.status == "failed"))] | length')
+      
+          echo "Cucumber Report Summary: ${{ env.PROFILE }}"
+          echo "::notice ::Total Scenarios: $total"
+          echo "::notice ::Passed Scenarios: $passed"
+          echo "::error ::Failed Scenarios: $failed"
+
+      - name: Upload Cucumber html report folder
+        continue-on-error: true
+        uses: actions/upload-artifact@v3
+        with:
+          name: cucumber-html-report-${{ inputs.test_runner }}
+          path: ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber-html-reports
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish Test Report
+        continue-on-error: true
+        if: success() || failure()
+        uses: scacap/action-surefire-report@v1.7.0
+        with:
+         github_token: ${{ secrets.GITHUB_TOKEN }}
+         report_paths: '${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/failsafe-reports/TEST-*.xml'
+      - name: Clean Up
+        if: always()
+        run: |
+          rm -rf ${{ env.GITHUB_WORKSPACE }}
