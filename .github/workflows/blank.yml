@@ -1,4 +1,4 @@
-name: 1_ConfigurationToolPhase-2 Build
+name: billi ka goo
 on:
   workflow_dispatch:
     inputs:
