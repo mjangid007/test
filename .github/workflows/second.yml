@@ -1,0 +1,258 @@
+name: 2_ConfigurationToolSuper Build
+on:
+  repository_dispatch:
+    types: [2_ConfigurationToolSuper]
+  workflow_dispatch:
+    inputs:
+      test_runner:
+        description: "Test Runner  Profile"
+        type: choice
+        default: 2_ConfigurationToolSuper
+        options:
+          - 2_ConfigurationToolSuper
+         
+        required: true
+      test_environment:
+        description: "Testing Environment"
+        type: choice
+        default: awsqa
+        options:
+          - awsqa
+          - awsqait
+          - devmasterempotral
+          - awsqaperf
+        required: true
+      gpec_endpoint_name:
+        description: "Live GPEC Endpoint name"
+        type: choice
+        default: devk3
+        options:
+          # EC2KWRG203301325 for devtest2k5
+          - devtest2k5
+          - qak2
+          - devk3
+          - Mobileqa2
+          - qak1
+        required: true
+      gpec_site_name:
+        description: "Live Gpec Site name"
+        type: choice
+        default: devk3
+        options:
+          - devk3
+          - qak2
+          - devk3
+          - devtest2k5
+          - Mobileqa2
+          - qak1
+        required: true
+      Downstream:
+        description: "Downstream"
+        type: choice
+        default: 'No'
+        options:
+          - 'Yes'
+          - 'No'
+        required: true  
+env:
+  GITHUB_USER: ${{ secrets.GH_USER }}
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+  GITHUB_WORKSPACE: /srv/source/commToolP1-${{ github.run_number }}
+  ARTIFACT_ID: develop-${{ github.run_number }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY_ID }}
+  AWS_DEFAULT_REGION: us-east-1
+  TOP_LEVEL_REPO_NAME: gpup_qa
+  REPO_NAME: software_test_automation/commToolP1
+  COMM_TOOL_ENV: awsqa
+  GPEC: qak2
+  SITE: qak2
+  PROFILE: 2_ConfigurationToolSuper
+  SELENIUM_VERSION: 3.141.59
+  CHROME_DRIVER_VERSION: 112.0.5615.49
+
+jobs:
+  build:
+
+    runs-on: [self-hosted, linux, x64]
+
+    permissions:
+      actions: write
+      contents: write
+      statuses: write
+      packages: read
+      checks: write
+
+    timeout-minutes: 1440
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+
+    steps:
+
+      # - name: checkout
+      #   uses: snow-actions/sparse-checkout@v1.2.0
+      #   with:
+      #     ref: ${{ github.ref }}
+      #     patterns: ${{ env.REPO_NAME }}
+      #     path: ${{ env.GITHUB_WORKSPACE }}
+
+      # - uses: snow-actions/sparse-checkout@v1.2.0
+      #   with:
+      #     patterns: ${{ env.REPO_NAME }}
+      #     path: ${{ env.GITHUB_WORKSPACE }}
+      #     if: github.event_name == 'repository_dispatch'
+      #     ref: ${{ github.event.client_payload.ref }}
+      #     else:ref: ${{ github.ref }}
+
+      - name: checkout code from repository_dispatch
+        if: github.event_name == 'repository_dispatch'
+        uses: snow-actions/sparse-checkout@v1.2.0
+        with:
+             patterns: ${{ env.REPO_NAME }}
+             path: ${{ env.GITHUB_WORKSPACE }}
+             ref: ${{ github.event.client_payload.ref }}
+      
+      - name: checkout code from workflow_dispatch
+        if: github.event_name != 'repository_dispatch'
+        uses: snow-actions/sparse-checkout@v1.2.0
+        with:
+             patterns: ${{ env.REPO_NAME }}
+             path: ${{ env.GITHUB_WORKSPACE }}
+             ref: ${{ github.ref }}
+
+
+      - name: Set workflow environment variables
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "test_environment=${{ inputs.test_environment }}" >> $GITHUB_ENV
+          echo "SITE=${{ inputs.gpec_site }}" >> $GITHUB_ENV
+          echo "GPEC=${{ inputs.gpec_endpoint_name }}" >> $GITHUB_ENV
+          echo "test_runner=${{ inputs.test_runner }}" >> $GITHUB_ENV
+          echo "Downstream=${{ inputs.Downstream }}" >> $GITHUB_ENV
+
+          
+      - name: Set repository_dispatch workflow environment variables
+        if: github.event_name == 'repository_dispatch'
+        run: |
+           echo "test_environment=${{ github.event.client_payload.test_environment }}" >> $GITHUB_ENV
+           echo "Downstream=${{ github.event.client_payload.Downstream }}" >> $GITHUB_ENV
+           echo "GPEC=${{ github.event.client_payload.gpec_endpoint_name }}" >> $GITHUB_ENV
+           echo "SITE=${{ github.event.client_payload.gpec_site_name }}" >> $GITHUB_ENV
+           echo "test_runner=${{ env.PROFILE }}" >> $GITHUB_ENV
+           echo "Downstream=${{ github.event.client_payload.Downstream }}" >> $GITHUB_ENV
+
+      - name: Debug Environment Variables
+        run: |
+          echo "test_environment=${{ env.test_environment }}"
+          echo "Downstream=${{ env.Downstream }}"
+          echo "GPEC=${{ env.GPEC }}"
+          echo "SITE=${{ env.SITE }}"
+          echo "test_runner=${{ env.test_runner }}"
+          
+      - name: Debug Payload
+        run: |
+          echo "GitHub Event Client Payload:"
+          echo "${{ toJson(github.event.client_payload) }}"
+           
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v4.5
+        with:
+          maven-version: 3.3.9
+
+      - name: install node
+        run: |
+          sudo apt update
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - &&\
+          sudo apt-get install -y nodejs
+          sudo apt-get install -y build-essential
+
+      - name: Install Chrome Driver
+        run: |
+          wget https://chromedriver.storage.googleapis.com/${{ env.CHROME_DRIVER_VERSION }}/chromedriver_linux64.zip
+          unzip chromedriver_linux64.zip
+          sudo mv chromedriver /usr/bin/chromedriver
+          sudo chown root:root /usr/bin/chromedriver
+          sudo chmod +x /usr/bin/chromedriver
+
+      - name: Install Selenium
+        run: |
+          mkdir -p /srv/source/util
+          wget https://github.com/SeleniumHQ/selenium/releases/download/selenium-${{ env.SELENIUM_VERSION }}/selenium-server-standalone-${{ env.SELENIUM_VERSION }}.jar
+          mv selenium-server-standalone-${{ env.SELENIUM_VERSION }}.jar /srv/source/util/selenium-server.jar
+
+      - name: Start Selenium
+        run: xvfb-run java -Dwebdriver.chrome.driver=/usr/bin/chromedriver -jar /srv/source/util/selenium-server.jar &
+
+      - name: Build with Maven
+        continue-on-error: true
+        run: |
+          cd ${{ env.REPO_NAME }}
+          mvn -P ${{ env.test_runner }} clean verify -e -fae -Denv=${{ env.test_environment }} -Dusername=dsgpadmin -Dpassword=P@ssword1! 
+          -Dbrowser=chrome_headless -Dcucumber.ansi-colors.disabled=true -Dendpoint=${{ env.GPEC }} -Dsite=${{ env.SITE }} 
+          --file pom.xml
+
+      - name: ${{ env.test_runner }}
+        uses: deblockt/cucumber-report-annotations-action@v1.7
+        with:
+          access-token: ${{ github.token }}
+          path: "${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber.json"
+
+      - name: Upload Cucumber JSON
+        uses: actions/upload-artifact@v3
+        with:
+          name: cucumber-report-${{ env.test_runner }}
+          path: ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Extract and Display Cucumber Results
+        id: cucumber_results
+        run: |
+          echo "PROFILE: ${{ env.PROFILE }}"
+          results=$(cat "${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber.json")
+          total=$(echo "$results" | jq '[.[] | .elements[]] | length')
+          passed=$(echo "$results" | jq '[.[] | .elements[] | select((.steps[]?.result.status == "passed") and (.before[]?.result.status != "failed") and (.after[]?.result.status != "failed"))] | length')
+          failed=$(echo "$results" | jq '[.[] | .elements[] | select((.steps[]?.result.status == "failed") or (.before[]?.result.status == "failed") or (.after[]?.result.status == "failed"))] | length')
+      
+          echo "Cucumber Report Summary: ${{ env.PROFILE }}"
+          echo "::notice ::Total Scenarios: $total"
+          echo "::notice ::Passed Scenarios: $passed"
+          echo "::error ::Failed Scenarios: $failed"
+          
+      - name: Upload Cucumber HTML
+        continue-on-error: true
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+           name: cucumber-html-reports folder
+           path: ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber-html-report.html
+           if-no-files-found: warn
+           retention-days: 30
+           
+           
+      - name: Upload Cucumber html report
+        uses: actions/upload-artifact@v3
+        with:
+          name: cucumber-report-${{ env.test_runner }}
+          path: ${{ env.GITHUB_WORKSPACE }}/${{ env.REPO_NAME }}/target/cucumber-html-reports
+          if-no-files-found: warn
+          retention-days: 30
+     
+    
+
+      - name: Clean Up
+        if: always()
+        run: |
+          rm -rf ${{ env.GITHUB_WORKSPACE }}
+
+      - name: 5_ConfigurationToolSuper
+        if: env.Downstream == 'Yes'
+        uses: peter-evans/repository-dispatch@v2
+        with:
+           token: ${{github.token }}
+           repository: gridpoint-com/gpup_qa
+           event-type: 5_ConfigurationToolSuper
+           client-payload: '{"ref": "${{ github.ref }}", "sha": "${{ github.sha }}","test_environment":"${{ env.test_environment }}","Downstream":"${{ env.Downstream }}","gpec_endpoint_name":"${{ env.GPEC }}","gpec_site_name":"${{ env.SITE }}"}'
